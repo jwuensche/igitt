@@ -40,15 +40,15 @@ async fn main() -> Result<()> {
     let github_token = matches.value_of("github-token").context("github-token not defined")?;
     let gitlab_token = matches.value_of("gitlab-token").context("gitlab-token not defined")?;
 
-    let url_re = Regex::new(r"https://(\w+)/(.+)")?;
+    let url_re = Regex::new(r"https://(.+?)/(.+)")?;
     let mut line = String::new();
     let stdin = io::stdin();
 
     for (kw, commits) in &keywords {
         for commit in commits {
             let captures = url_re.captures(&commit.origin).context("could not parse origin")?;
-            let domain = captures.get(0).context("no valid domain for origin")?.as_str();
-            let path = captures.get(1).context("no valid path for origin")?.as_str();
+            let domain = captures.get(1).context("no valid domain for origin")?.as_str();
+            let path = captures.get(2).context("no valid path for origin")?.as_str();
 
             let (msg_url, diff_url, auth) = match domain {
                 "github.com" => (
@@ -64,8 +64,14 @@ async fn main() -> Result<()> {
                 d => bail!("invalid domain {}", d)
             };
 
-            let message = &surf::get(msg_url).set_header(auth.0, auth.1.clone()).recv_json::<Value>().await?["message"];
-            let diff = surf::get(diff_url).set_header(auth.0, auth.1).recv_string().await?;
+            let message = match surf::get(msg_url).set_header(auth.0, auth.1.clone()).recv_json::<Value>().await {
+                Ok(response) => response["message"].clone(),
+                Err(err) => bail!(err),
+            };
+            let diff = match surf::get(diff_url).set_header(auth.0, auth.1).recv_string().await {
+                Ok(response) => response,
+                Err(err) => bail!(err),
+            };
 
             println!("{}", message);
             println!("{}", diff);

@@ -1,12 +1,14 @@
 use cursive::Cursive;
 use cursive::align::HAlign;
 use cursive::view::{Scrollable, Nameable, Resizable};
-use cursive::views::{LinearLayout, TextView, EditView, Panel, Dialog};
+use cursive::views::{LinearLayout, TextView, TextArea, EditView, SelectView, Panel, Button, Dialog, RadioGroup, RadioButton};
 use cursive_async_view::{AsyncView, AsyncState};
+use cursive_tabs::TabPanel;
 use async_std::prelude::*;
 use async_std::task;
 use std::sync::mpsc::channel;
 use std::fs::File;
+use std::collections::HashSet;
 use std::thread;
 use std::time::Duration;
 use std::collections::BTreeMap as Map;
@@ -17,10 +19,18 @@ use serde_json::Value;
 use regex::Regex;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Rating {
+    is_refactoring: bool,
+    comment: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Commit {
     origin: String,
     commit: String,
+    #[serde(default)]
+    rating: Map<String, Rating>,
 }
 
 fn disable_btns(siv: &mut Cursive) {
@@ -67,48 +77,85 @@ Get a GitLab access token here (scope api):
              .required(true))
         .get_matches();
 
-    let keywords: Map<String, Vec<Commit>> = serde_yaml::from_reader(
-        File::open(matches.value_of("KEYWORDS_YAML").context("KEYWORDS_YAML not provided")?)?
+    let keywords_yaml_path = matches.value_of("KEYWORDS_YAML")
+        .context("KEYWORDS_YAML not provided")?
+        .to_string();
+    let mut keywords: Map<String, Vec<Commit>> = serde_yaml::from_reader(
+        File::open(&keywords_yaml_path)?
     )?;
+    let commits = keywords.values().flat_map(|cs| cs);
+    let authors = commits.flat_map(|c| c.rating.keys().map(|k| k.clone())).collect::<HashSet<_>>();
     let github_token = matches.value_of("github-token").context("github-token not defined")?;
     let gitlab_token = matches.value_of("gitlab-token").context("gitlab-token not defined")?;
 
     let url_re = Regex::new(r"^https://(.+?)/(.+?)(:?\.git)?$")?;
 
     let (cb_sink_tx, cb_sink_rx) = channel();
-    let (name_tx, name_rx) = channel();
+    let (readonly_name_tx, readonly_name_rx) = channel();
     let siv_task_handle = task::spawn(async move {
         let mut siv = Cursive::default();
         cb_sink_tx.send(siv.cb_sink().clone()).unwrap();
 
-        let name_edit_tx = name_tx.clone();
-        let name_edit = EditView::new()
-            .on_submit(move |siv, name| {
-                if !name.is_empty() {
-                    name_edit_tx.send(name.to_string()).unwrap();
-                    siv.pop_layer();
-                }
-            })
-            .with_name("name_text_field");
-        let name_dialog = Dialog::around(name_edit)
-            .title("Please enter your name")
-            .button("Ok", move |siv| {
-                let name = siv.find_name::<EditView>("name_text_field")
-                    .unwrap()
-                    .get_content()
-                    .to_string();
+        let mut tabs = TabPanel::new();
 
-                if !name.is_empty() {
-                    name_tx.send(name).unwrap();
-                    siv.pop_layer();
-                }
-            });
+        let mut new_tab = LinearLayout::vertical();
+        let readonly_name_new_tx = readonly_name_tx.clone();
+        let readonly_name_ok_tx = readonly_name_tx.clone();
+        let readonly_name_view_tx = readonly_name_tx.clone();
+        let readonly_name_edit_tx = readonly_name_tx.clone();
+        new_tab.add_child(TextView::new("Please enter your name"));
+        new_tab.add_child(
+            EditView::new()
+                .on_submit(move |siv, name| {
+                    if !name.is_empty() {
+                        readonly_name_new_tx.send((false, name.to_string())).unwrap();
+                        siv.pop_layer();
+                    }
+                })
+                .with_name("name_text_field")
+        );
+        new_tab.add_child(Button::new("Ok", move |siv| {
+            let name = siv.find_name::<EditView>("name_text_field")
+                .unwrap()
+                .get_content()
+                .to_string();
 
-        siv.add_layer(name_dialog);
+            if !name.is_empty() {
+                readonly_name_ok_tx.send((false, name)).unwrap();
+                siv.pop_layer();
+            }
+        }));
+        tabs.add_tab("New", new_tab);
+
+        let mut view_tab = LinearLayout::vertical();
+        view_tab.add_child(TextView::new("Please select a rating (press enter) to view"));
+        let mut view_select = SelectView::new().on_submit(move |siv, author: &String| {
+            readonly_name_view_tx.send((true, author.clone())).unwrap();
+            siv.pop_layer();
+        });
+        for rating in &authors {
+            view_select.add_item(rating.clone(), rating.clone());
+        }
+        view_tab.add_child(view_select);
+        tabs.add_tab("View", view_tab);
+
+        let mut edit_tab = LinearLayout::vertical();
+        edit_tab.add_child(TextView::new("Please select a rating (press enter) to edit"));
+        let mut edit_select = SelectView::new().on_submit(move |siv, author: &String| {
+            readonly_name_edit_tx.send((false, author.clone())).unwrap();
+            siv.pop_layer();
+        });
+        for rating in &authors {
+            edit_select.add_item(rating.clone(), rating.clone());
+        }
+        edit_tab.add_child(edit_select);
+        tabs.add_tab("Edit", edit_tab);
+
+        siv.add_layer(tabs.max_width(60));
         siv.run();
     });
     let cb_sink = cb_sink_rx.recv().unwrap();
-    let name = name_rx.recv().unwrap();
+    let (readonly, name) = readonly_name_rx.recv().unwrap();
 
     let (next_tx, next_rx) = channel();
     let (quit_tx, quit_rx) = channel();
@@ -116,7 +163,10 @@ Get a GitLab access token here (scope api):
         let keywords_dialog = Dialog::new()
             .button("Next", move |mut siv| {
                 disable_btns(&mut siv);
-                next_tx.send(()).unwrap();
+
+                let comment = siv.find_name::<TextArea>("comment").unwrap().get_content().to_string();
+                let is_refactoring = siv.find_name::<RadioButton<bool>>("is_refactoring").unwrap().is_enabled();
+                next_tx.send((comment, is_refactoring)).unwrap();
             })
             .with_name("keywords_dialog")
             .full_screen();
@@ -134,8 +184,9 @@ Get a GitLab access token here (scope api):
         });
     })).unwrap();
 
-    'outer: for (kw, commits) in &keywords {
-        for commit in commits {
+    let mut save = true;
+    'outer: for (kw, commits) in keywords.iter_mut() {
+        for commit in commits.iter_mut() {
             let captures = url_re.captures(&commit.origin).context("could not parse origin")?;
             let domain = captures.get(1).context("no valid domain for origin")?.as_str();
             let path = captures.get(2).context("no valid path for origin")?.as_str();
@@ -165,23 +216,22 @@ Get a GitLab access token here (scope api):
             });
 
             let keyword = kw.clone();
-            let origin = commit.origin.clone();
-            let commithash = commit.commit.clone();
+            let commit_clone = commit.clone();
+            let name_clone = name.clone();
             let inner_cb_sink = cb_sink.clone();
 
             cb_sink.send(Box::new(move |mut siv| {
                 let keyword = keyword.clone();
-                let origin = origin.clone();
-                let commithash = commithash.clone();
+                let commit_clone = commit_clone.clone();
 
                 let mut keywords_dialog = siv.find_name::<Dialog>("keywords_dialog").unwrap();
                 keywords_dialog.set_title(format!(
                     "Loading '{keyword}' / {section} | {origin} @ {commit} - {date}",
                     keyword = keyword,
                     section = "N/A",
-                    origin = origin,
+                    origin = commit_clone.origin,
                     date = "N/A",
-                    commit = commithash,
+                    commit = commit_clone.commit,
                 ));
 
                 let async_view = AsyncView::new(&mut siv, move || {
@@ -217,18 +267,49 @@ Get a GitLab access token here (scope api):
                             .full_screen()
                     );
 
+                    let mut rating_layout = LinearLayout::vertical();
+                    let mut radio_group = RadioGroup::new();
+
+                    let mut valid_btn = radio_group.button(true, "This commit is a valid refactoring");
+                    let mut invalid_btn = radio_group.button(false, "This commit does not contain refactoring");
+
+                    let mut comment_area = TextArea::new()
+                        .content(commit_clone.rating[&name_clone].comment.clone());
+
+                    if commit_clone.rating[&name_clone].is_refactoring {
+                        valid_btn.select();
+                    } else {
+                        invalid_btn.select();
+                    }
+
+                    if readonly {
+                        valid_btn.disable();
+                        invalid_btn.disable();
+                        comment_area.disable();
+                    }
+
+                    rating_layout.add_child(valid_btn.with_name("is_refactoring"));
+                    rating_layout.add_child(invalid_btn);
+                    rating_layout.add_child(TextView::new("\nComment:"));
+                    rating_layout.add_child(comment_area.with_name("comment").min_height(5));
+
+                    linear.add_child(
+                        Panel::new(rating_layout)
+                            .title("Refactor rating")
+                            .title_position(HAlign::Left)
+                    );
+
                     let keyword = keyword.clone();
-                    let origin = origin.clone();
-                    let commithash = commithash.clone();
+                    let commit_clone = commit_clone.clone();
                     inner_cb_sink.send(Box::new(move |mut siv| {
                         enable_btns(&mut siv);
                         let mut keywords_dialog = siv.find_name::<Dialog>("keywords_dialog").unwrap();
                         keywords_dialog.set_title(format!(
                             "'{keyword}' / {section} | {origin} @ {commit} - {date}",
                             keyword = keyword,
-                            origin = origin,
+                            origin = commit_clone.origin,
                             section = "N/A",
-                            commit = commithash,
+                            commit = commit_clone.commit,
                             date = "N/A",
                         ));
                     })).unwrap();
@@ -239,21 +320,54 @@ Get a GitLab access token here (scope api):
                 keywords_dialog.set_content(async_view);
             })).unwrap();
 
+            let comment;
+            let is_refactoring;
+
             loop {
                 match quit_rx.try_recv() {
-                    Ok(_) => break 'outer,
+                    Ok(_) => {
+                        save = false;
+                        break 'outer;
+                    },
                     Err(_) => {},
                 }
 
                 match next_rx.try_recv() {
-                    Ok(_) => break,
+                    Ok(data) => {
+                        comment = data.0;
+                        is_refactoring = data.1;
+                        break;
+                    },
                     Err(_) => thread::sleep(Duration::from_millis(10)),
                 }
             }
+
+            commit.rating.insert(name.clone(), Rating {
+                is_refactoring: is_refactoring,
+                comment: comment,
+            });
         }
     }
 
-    cb_sink.send(Box::new(move |siv| siv.quit())).unwrap();
+    if save {
+        serde_yaml::to_writer(
+            File::create(&keywords_yaml_path)?,
+            &keywords,
+        )?;
+    }
+
+    cb_sink.send(Box::new(move |siv| {
+        siv.pop_layer();
+
+        if save {
+            siv.add_layer(
+                Dialog::text(format!("Rating successfully saved to {}", keywords_yaml_path))
+                    .button("Ok", |siv| siv.quit())
+            );
+        } else {
+            siv.quit();
+        }
+    })).unwrap();
     siv_task_handle.await;
 
     Ok(())

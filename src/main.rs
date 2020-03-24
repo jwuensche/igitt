@@ -1,23 +1,26 @@
-use cursive::Cursive;
-use cursive::align::HAlign;
-use cursive::view::{Scrollable, Nameable, Resizable};
-use cursive::views::{LinearLayout, TextView, TextArea, EditView, SelectView, Panel, Button, Dialog, RadioGroup, RadioButton};
-use cursive_async_view::{AsyncView, AsyncState};
-use cursive_tabs::TabPanel;
+use anyhow::{bail, Context, Result};
 use async_std::prelude::*;
 use async_std::task;
-use std::sync::mpsc::channel;
-use std::fs::File;
+use clap::{App, Arg};
+use cursive::align::HAlign;
+use cursive::view::{Nameable, Resizable, Scrollable};
+use cursive::views::{
+    Button, Dialog, EditView, LinearLayout, Panel, RadioButton, RadioGroup, SelectView, TextArea,
+    TextView,
+};
+use cursive::Cursive;
+use cursive_async_view::{AsyncState, AsyncView};
+use cursive_tabs::TabPanel;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap as Map;
 use std::collections::HashSet;
+use std::fs::File;
+use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
-use std::collections::BTreeMap as Map;
-use anyhow::{bail, Result, Context};
-use clap::{Arg, App};
-use serde::{Serialize, Deserialize};
-use serde_json::Value;
-use regex::Regex;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Rating {
@@ -34,7 +37,8 @@ struct Commit {
 }
 
 fn disable_btns(siv: &mut Cursive) {
-    let _btns = siv.find_name::<Dialog>("keywords_dialog")
+    let _btns = siv
+        .find_name::<Dialog>("keywords_dialog")
         .unwrap()
         .buttons_mut()
         .map(|btn| btn.disable())
@@ -42,7 +46,8 @@ fn disable_btns(siv: &mut Cursive) {
 }
 
 fn enable_btns(siv: &mut Cursive) {
-    let _btns = siv.find_name::<Dialog>("keywords_dialog")
+    let _btns = siv
+        .find_name::<Dialog>("keywords_dialog")
         .unwrap()
         .buttons_mut()
         .map(|btn| btn.enable())
@@ -55,38 +60,52 @@ async fn main() -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
-        .after_help("Get a GitHub access token here (no scopes needed):
+        .after_help(
+            "Get a GitHub access token here (no scopes needed):
     https://github.com/settings/tokens
 
 Get a GitLab access token here (scope api):
     https://gitlab.com/profile/personal_access_tokens
 
-")
-        .arg(Arg::with_name("KEYWORDS_YAML")
-             .help("Sets the path to the keywords yaml file")
-             .required(true))
-        .arg(Arg::with_name("github-token")
-             .help("Sets the GitHub API Token")
-             .long("github")
-             .value_name("TOKEN")
-             .required(true))
-        .arg(Arg::with_name("gitlab-token")
-             .help("Sets the GitLab API Token")
-             .long("gitlab")
-             .value_name("TOKEN")
-             .required(true))
+",
+        )
+        .arg(
+            Arg::with_name("KEYWORDS_YAML")
+                .help("Sets the path to the keywords yaml file")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("github-token")
+                .help("Sets the GitHub API Token")
+                .long("github")
+                .value_name("TOKEN")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("gitlab-token")
+                .help("Sets the GitLab API Token")
+                .long("gitlab")
+                .value_name("TOKEN")
+                .required(true),
+        )
         .get_matches();
 
-    let keywords_yaml_path = matches.value_of("KEYWORDS_YAML")
+    let keywords_yaml_path = matches
+        .value_of("KEYWORDS_YAML")
         .context("KEYWORDS_YAML not provided")?
         .to_string();
-    let mut keywords: Map<String, Vec<Commit>> = serde_yaml::from_reader(
-        File::open(&keywords_yaml_path)?
-    )?;
+    let mut keywords: Map<String, Vec<Commit>> =
+        serde_yaml::from_reader(File::open(&keywords_yaml_path)?)?;
     let commits = keywords.values().flat_map(|cs| cs);
-    let authors = commits.flat_map(|c| c.rating.keys().map(|k| k.clone())).collect::<HashSet<_>>();
-    let github_token = matches.value_of("github-token").context("github-token not defined")?;
-    let gitlab_token = matches.value_of("gitlab-token").context("gitlab-token not defined")?;
+    let authors = commits
+        .flat_map(|c| c.rating.keys().map(|k| k.clone()))
+        .collect::<HashSet<_>>();
+    let github_token = matches
+        .value_of("github-token")
+        .context("github-token not defined")?;
+    let gitlab_token = matches
+        .value_of("gitlab-token")
+        .context("gitlab-token not defined")?;
 
     let url_re = Regex::new(r"^https://(.+?)/(.+?)(:?\.git)?$")?;
 
@@ -108,14 +127,17 @@ Get a GitLab access token here (scope api):
             EditView::new()
                 .on_submit(move |siv, name| {
                     if !name.is_empty() {
-                        readonly_name_new_tx.send((false, name.to_string())).unwrap();
+                        readonly_name_new_tx
+                            .send((false, name.to_string()))
+                            .unwrap();
                         siv.pop_layer();
                     }
                 })
-                .with_name("name_text_field")
+                .with_name("name_text_field"),
         );
         new_tab.add_child(Button::new("Ok", move |siv| {
-            let name = siv.find_name::<EditView>("name_text_field")
+            let name = siv
+                .find_name::<EditView>("name_text_field")
                 .unwrap()
                 .get_content()
                 .to_string();
@@ -128,7 +150,9 @@ Get a GitLab access token here (scope api):
         tabs.add_tab("New", new_tab);
 
         let mut view_tab = LinearLayout::vertical();
-        view_tab.add_child(TextView::new("Please select a rating (press enter) to view"));
+        view_tab.add_child(TextView::new(
+            "Please select a rating (press enter) to view",
+        ));
         let mut view_select = SelectView::new().on_submit(move |siv, author: &String| {
             readonly_name_view_tx.send((true, author.clone())).unwrap();
             siv.pop_layer();
@@ -140,7 +164,9 @@ Get a GitLab access token here (scope api):
         tabs.add_tab("View", view_tab);
 
         let mut edit_tab = LinearLayout::vertical();
-        edit_tab.add_child(TextView::new("Please select a rating (press enter) to edit"));
+        edit_tab.add_child(TextView::new(
+            "Please select a rating (press enter) to edit",
+        ));
         let mut edit_select = SelectView::new().on_submit(move |siv, author: &String| {
             readonly_name_edit_tx.send((false, author.clone())).unwrap();
             siv.pop_layer();
@@ -159,54 +185,84 @@ Get a GitLab access token here (scope api):
 
     let (next_tx, next_rx) = channel();
     let (quit_tx, quit_rx) = channel();
-    cb_sink.send(Box::new(move |mut siv| {
-        let keywords_dialog = Dialog::new()
-            .button("Next", move |mut siv| {
-                disable_btns(&mut siv);
+    cb_sink
+        .send(Box::new(move |mut siv| {
+            let keywords_dialog = Dialog::new()
+                .button("Next", move |mut siv| {
+                    disable_btns(&mut siv);
 
-                let comment = siv.find_name::<TextArea>("comment").unwrap().get_content().to_string();
-                let is_refactoring = siv.find_name::<RadioButton<bool>>("is_refactoring").unwrap().is_enabled();
-                next_tx.send((comment, is_refactoring)).unwrap();
-            })
-            .with_name("keywords_dialog")
-            .full_screen();
+                    let comment = siv
+                        .find_name::<TextArea>("comment")
+                        .unwrap()
+                        .get_content()
+                        .to_string();
+                    let is_refactoring = siv
+                        .find_name::<RadioButton<bool>>("is_refactoring")
+                        .unwrap()
+                        .is_enabled();
+                    next_tx.send((comment, is_refactoring)).unwrap();
+                })
+                .with_name("keywords_dialog")
+                .full_screen();
 
-        siv.add_layer(keywords_dialog);
-        disable_btns(&mut siv);
+            siv.add_layer(keywords_dialog);
+            disable_btns(&mut siv);
 
-        siv.add_global_callback('q', move |siv| {
-            let quit_tx_cp = quit_tx.clone();
-            siv.add_layer(
-                Dialog::text("Do you really want to quit and discard all changes?")
-                    .button("Yes", move |_siv| quit_tx_cp.send(()).unwrap())
-                    .button("No", move |siv| { siv.pop_layer(); })
-            );
-        });
-    })).unwrap();
+            siv.add_global_callback('q', move |siv| {
+                let quit_tx_cp = quit_tx.clone();
+                siv.add_layer(
+                    Dialog::text("Do you really want to quit and discard all changes?")
+                        .button("Yes", move |_siv| quit_tx_cp.send(()).unwrap())
+                        .button("No", move |siv| {
+                            siv.pop_layer();
+                        }),
+                );
+            });
+        }))
+        .unwrap();
 
     let mut save = true;
     'outer: for (kw, commits) in keywords.iter_mut() {
         for commit in commits.iter_mut() {
-            let captures = url_re.captures(&commit.origin).context("could not parse origin")?;
-            let domain = captures.get(1).context("no valid domain for origin")?.as_str();
-            let path = captures.get(2).context("no valid path for origin")?.as_str();
+            let captures = url_re
+                .captures(&commit.origin)
+                .context("could not parse origin")?;
+            let domain = captures
+                .get(1)
+                .context("no valid domain for origin")?
+                .as_str();
+            let path = captures
+                .get(2)
+                .context("no valid path for origin")?
+                .as_str();
             let urlenc = utf8_percent_encode(path, NON_ALPHANUMERIC);
 
             let (msg_url, diff_url, auth) = match domain {
                 "github.com" => (
-                    format!("https://api.github.com/repos/{}/git/commits/{}", path, commit.commit),
+                    format!(
+                        "https://api.github.com/repos/{}/git/commits/{}",
+                        path, commit.commit
+                    ),
                     format!("https://github.com/{}/commit/{}.diff", path, commit.commit),
                     ("Authorization", format!("token {}", github_token)),
                 ),
                 "gitlab.com" => (
-                    format!("https://gitlab.com/api/v4/projects/{}/repository/commits/{}", urlenc, commit.commit),
-                    format!("https://gitlab.com/{}/-/commit/{}.diff", path, commit.commit),
+                    format!(
+                        "https://gitlab.com/api/v4/projects/{}/repository/commits/{}",
+                        urlenc, commit.commit
+                    ),
+                    format!(
+                        "https://gitlab.com/{}/-/commit/{}.diff",
+                        path, commit.commit
+                    ),
                     ("PRIVATE-TOKEN", gitlab_token.to_string()),
                 ),
-                d => bail!("invalid domain {}", d)
+                d => bail!("invalid domain {}", d),
             };
 
-            let message_request = surf::get(msg_url).set_header(auth.0, auth.1.clone()).recv_json::<Value>();
+            let message_request = surf::get(msg_url)
+                .set_header(auth.0, auth.1.clone())
+                .recv_json::<Value>();
             let diff_request = surf::get(diff_url).set_header(auth.0, auth.1).recv_string();
 
             let (tx, rx) = channel();
@@ -220,105 +276,134 @@ Get a GitLab access token here (scope api):
             let name_clone = name.clone();
             let inner_cb_sink = cb_sink.clone();
 
-            cb_sink.send(Box::new(move |mut siv| {
-                let keyword = keyword.clone();
-                let commit_clone = commit_clone.clone();
-
-                let mut keywords_dialog = siv.find_name::<Dialog>("keywords_dialog").unwrap();
-                keywords_dialog.set_title(format!(
-                    "Loading '{keyword}' / {section} | {origin} @ {commit} - {date}",
-                    keyword = keyword,
-                    section = "N/A",
-                    origin = commit_clone.origin,
-                    date = "N/A",
-                    commit = commit_clone.commit,
-                ));
-
-                let async_view = AsyncView::new(&mut siv, move || {
-                    let (message_result, diff_result) = match rx.try_recv() {
-                        Ok(req) => req,
-                        Err(_) => return AsyncState::Pending,
-                    };
-
-                    let mut linear = LinearLayout::vertical();
-
-                    let message = match message_result {
-                        Ok(message) => message["message"].as_str()
-                            .unwrap_or("!! Commit message not available !!")
-                            .to_string(),
-                        Err(err) => format!("{}", err),
-                    };
-
-                    linear.add_child(
-                        Panel::new(TextView::new(message).scrollable().scroll_x(false).scroll_y(true))
-                            .title("Commit Message")
-                            .title_position(HAlign::Left)
-                    );
-
-                    let diff = match diff_result {
-                        Ok(diff) => diff,
-                        Err(err) => format!("{}", err),
-                    };
-
-                    linear.add_child(
-                        Panel::new(TextView::new(diff).scrollable().scroll_x(false).scroll_y(true))
-                            .title("Diff")
-                            .title_position(HAlign::Left)
-                            .full_screen()
-                    );
-
-                    let mut rating_layout = LinearLayout::vertical();
-                    let mut radio_group = RadioGroup::new();
-
-                    let mut valid_btn = radio_group.button(true, "This commit is a valid refactoring");
-                    let mut invalid_btn = radio_group.button(false, "This commit does not contain refactoring");
-
-                    let mut comment_area = TextArea::new()
-                        .content(commit_clone.rating[&name_clone].comment.clone());
-
-                    if commit_clone.rating[&name_clone].is_refactoring {
-                        valid_btn.select();
-                    } else {
-                        invalid_btn.select();
-                    }
-
-                    if readonly {
-                        valid_btn.disable();
-                        invalid_btn.disable();
-                        comment_area.disable();
-                    }
-
-                    rating_layout.add_child(valid_btn.with_name("is_refactoring"));
-                    rating_layout.add_child(invalid_btn);
-                    rating_layout.add_child(TextView::new("\nComment:"));
-                    rating_layout.add_child(comment_area.with_name("comment").min_height(5));
-
-                    linear.add_child(
-                        Panel::new(rating_layout)
-                            .title("Refactor rating")
-                            .title_position(HAlign::Left)
-                    );
-
+            cb_sink
+                .send(Box::new(move |mut siv| {
                     let keyword = keyword.clone();
                     let commit_clone = commit_clone.clone();
-                    inner_cb_sink.send(Box::new(move |mut siv| {
-                        enable_btns(&mut siv);
-                        let mut keywords_dialog = siv.find_name::<Dialog>("keywords_dialog").unwrap();
-                        keywords_dialog.set_title(format!(
-                            "'{keyword}' / {section} | {origin} @ {commit} - {date}",
-                            keyword = keyword,
-                            origin = commit_clone.origin,
-                            section = "N/A",
-                            commit = commit_clone.commit,
-                            date = "N/A",
-                        ));
-                    })).unwrap();
 
-                    AsyncState::Available(linear)
-                });
+                    let mut keywords_dialog = siv.find_name::<Dialog>("keywords_dialog").unwrap();
+                    keywords_dialog.set_title(format!(
+                        "Loading '{keyword}' / {section} | {origin} @ {commit} - {date}",
+                        keyword = keyword,
+                        section = "N/A",
+                        origin = commit_clone.origin,
+                        date = "N/A",
+                        commit = commit_clone.commit,
+                    ));
 
-                keywords_dialog.set_content(async_view);
-            })).unwrap();
+                    let async_view = AsyncView::new(&mut siv, move || {
+                        let (message_result, diff_result) = match rx.try_recv() {
+                            Ok(req) => req,
+                            Err(_) => return AsyncState::Pending,
+                        };
+
+                        let mut linear = LinearLayout::vertical();
+
+                        let message = match message_result {
+                            Ok(message) => message["message"]
+                                .as_str()
+                                .unwrap_or("!! Commit message not available !!")
+                                .to_string(),
+                            Err(err) => format!("{}", err),
+                        };
+
+                        linear.add_child(
+                            Panel::new(
+                                TextView::new(message)
+                                    .scrollable()
+                                    .scroll_x(false)
+                                    .scroll_y(true),
+                            )
+                            .title("Commit Message")
+                            .title_position(HAlign::Left),
+                        );
+
+                        let diff = match diff_result {
+                            Ok(diff) => diff,
+                            Err(err) => format!("{}", err),
+                        };
+
+                        linear.add_child(
+                            Panel::new(
+                                TextView::new(diff)
+                                    .scrollable()
+                                    .scroll_x(false)
+                                    .scroll_y(true),
+                            )
+                            .title("Diff")
+                            .title_position(HAlign::Left)
+                            .full_screen(),
+                        );
+
+                        let mut rating_layout = LinearLayout::vertical();
+                        let mut radio_group = RadioGroup::new();
+
+                        let mut valid_btn =
+                            radio_group.button(true, "This commit is a valid refactoring");
+                        let mut invalid_btn =
+                            radio_group.button(false, "This commit does not contain refactoring");
+
+                        let mut comment_area = TextArea::new().content(
+                            match commit_clone.rating.get_key_value(&name_clone) {
+                                Some(val) => val.1.comment.clone(),
+                                None => "".to_string(),
+                            },
+                        );
+
+                        match commit_clone.rating.get_key_value(&name_clone) {
+                            Some(val) => {
+                                if val.1.is_refactoring {
+                                    valid_btn.select();
+                                } else {
+                                    invalid_btn.select();
+                                }
+                            }
+                            None => {
+                                invalid_btn.select();
+                            }
+                        }
+
+                        if readonly {
+                            valid_btn.disable();
+                            invalid_btn.disable();
+                            comment_area.disable();
+                        }
+
+                        rating_layout.add_child(valid_btn.with_name("is_refactoring"));
+                        rating_layout.add_child(invalid_btn);
+                        rating_layout.add_child(TextView::new("\nComment:"));
+                        rating_layout.add_child(comment_area.with_name("comment").min_height(5));
+
+                        linear.add_child(
+                            Panel::new(rating_layout)
+                                .title("Refactor rating")
+                                .title_position(HAlign::Left),
+                        );
+
+                        let keyword = keyword.clone();
+                        let commit_clone = commit_clone.clone();
+                        inner_cb_sink
+                            .send(Box::new(move |mut siv| {
+                                enable_btns(&mut siv);
+                                let mut keywords_dialog =
+                                    siv.find_name::<Dialog>("keywords_dialog").unwrap();
+                                keywords_dialog.set_title(format!(
+                                    "'{keyword}' / {section} | {origin} @ {commit} - {date}",
+                                    keyword = keyword,
+                                    origin = commit_clone.origin,
+                                    section = "N/A",
+                                    commit = commit_clone.commit,
+                                    date = "N/A",
+                                ));
+                            }))
+                            .unwrap();
+
+                        AsyncState::Available(linear)
+                    });
+
+                    keywords_dialog.set_content(async_view);
+                }))
+                .unwrap();
 
             let comment;
             let is_refactoring;
@@ -328,8 +413,8 @@ Get a GitLab access token here (scope api):
                     Ok(_) => {
                         save = false;
                         break 'outer;
-                    },
-                    Err(_) => {},
+                    }
+                    Err(_) => {}
                 }
 
                 match next_rx.try_recv() {
@@ -337,37 +422,42 @@ Get a GitLab access token here (scope api):
                         comment = data.0;
                         is_refactoring = data.1;
                         break;
-                    },
+                    }
                     Err(_) => thread::sleep(Duration::from_millis(10)),
                 }
             }
 
-            commit.rating.insert(name.clone(), Rating {
-                is_refactoring: is_refactoring,
-                comment: comment,
-            });
+            commit.rating.insert(
+                name.clone(),
+                Rating {
+                    is_refactoring: is_refactoring,
+                    comment: comment,
+                },
+            );
         }
     }
 
     if save {
-        serde_yaml::to_writer(
-            File::create(&keywords_yaml_path)?,
-            &keywords,
-        )?;
+        serde_yaml::to_writer(File::create(&keywords_yaml_path)?, &keywords)?;
     }
 
-    cb_sink.send(Box::new(move |siv| {
-        siv.pop_layer();
+    cb_sink
+        .send(Box::new(move |siv| {
+            siv.pop_layer();
 
-        if save {
-            siv.add_layer(
-                Dialog::text(format!("Rating successfully saved to {}", keywords_yaml_path))
-                    .button("Ok", |siv| siv.quit())
-            );
-        } else {
-            siv.quit();
-        }
-    })).unwrap();
+            if save {
+                siv.add_layer(
+                    Dialog::text(format!(
+                        "Rating successfully saved to {}",
+                        keywords_yaml_path
+                    ))
+                    .button("Ok", |siv| siv.quit()),
+                );
+            } else {
+                siv.quit();
+            }
+        }))
+        .unwrap();
     siv_task_handle.await;
 
     Ok(())

@@ -45,6 +45,13 @@ async fn main() -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
+        .after_help("Get a GitHub access token here (no scopes needed):
+    https://github.com/settings/tokens
+
+Get a GitLab access token here (scope api):
+    https://gitlab.com/profile/personal_access_tokens
+
+")
         .arg(Arg::with_name("KEYWORDS_YAML")
              .help("Sets the path to the keywords yaml file")
              .required(true))

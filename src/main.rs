@@ -184,6 +184,8 @@ Get a GitLab access token here (scope api):
             buttons_layout.add_child(
                 Button::new("Prev", move |siv| {
                     siv.find_name::<Button>("prev").unwrap().disable();
+                    siv.find_name::<Button>("next").unwrap().disable();
+                    siv.find_name::<Button>("finish").unwrap().disable();
 
                     let comment = siv
                         .find_name::<TextArea>("comment")
@@ -202,7 +204,9 @@ Get a GitLab access token here (scope api):
             let next_tx = paging_tx.clone();
             buttons_layout.add_child(
                 Button::new("Next", move |siv| {
+                    siv.find_name::<Button>("prev").unwrap().disable();
                     siv.find_name::<Button>("next").unwrap().disable();
+                    siv.find_name::<Button>("finish").unwrap().disable();
 
                     let comment = siv
                         .find_name::<TextArea>("comment")
@@ -221,6 +225,8 @@ Get a GitLab access token here (scope api):
             let finish_tx = paging_tx.clone();
             buttons_layout.add_child(
                 Button::new("Finish", move |siv| {
+                    siv.find_name::<Button>("prev").unwrap().disable();
+                    siv.find_name::<Button>("next").unwrap().disable();
                     siv.find_name::<Button>("finish").unwrap().disable();
 
                     let comment = siv

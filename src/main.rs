@@ -193,7 +193,7 @@ Get a GitLab access token here (scope api):
                     let is_refactoring = siv
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
-                        .is_enabled();
+                        .is_selected();
                     prev_tx.send(Paging::Prev(comment, is_refactoring)).unwrap();
                 })
                 .disabled()
@@ -212,7 +212,7 @@ Get a GitLab access token here (scope api):
                     let is_refactoring = siv
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
-                        .is_enabled();
+                        .is_selected();
                     next_tx.send(Paging::Next(comment, is_refactoring)).unwrap();
                 })
                 .disabled()
@@ -231,7 +231,7 @@ Get a GitLab access token here (scope api):
                     let is_refactoring = siv
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
-                        .is_enabled();
+                        .is_selected();
                     finish_tx
                         .send(Paging::Finish(comment, is_refactoring))
                         .unwrap();
@@ -267,9 +267,9 @@ Get a GitLab access token here (scope api):
     let mut commit_idx = 0;
     'outer: loop {
         let kw = &keys[key_idx];
-        let commits = keywords.get_mut(kw).unwrap();
+        let commits = keywords.get(kw).unwrap();
         let commits_len = commits.len();
-        let commit = &mut commits[commit_idx];
+        let commit = &commits[commit_idx];
 
         let captures = url_re
             .captures(&commit.origin)
@@ -469,6 +469,7 @@ Get a GitLab access token here (scope api):
         let comment;
         let is_refactoring;
 
+        let old_commit_idx = commit_idx;
         loop {
             match quit_rx.try_recv() {
                 Ok(_) => {
@@ -484,6 +485,7 @@ Get a GitLab access token here (scope api):
                     is_refactoring = r;
                     if commit_idx + 1 >= commits_len {
                         key_idx += 1;
+                        commit_idx = 0;
                     } else {
                         commit_idx += 1;
                     }
@@ -494,6 +496,9 @@ Get a GitLab access token here (scope api):
                     is_refactoring = r;
                     if commit_idx == 0 {
                         key_idx -= 1;
+                        let kw = &keys[key_idx];
+                        let commits = keywords.get(kw).unwrap();
+                        commit_idx = commits.len() - 1;
                     } else {
                         commit_idx -= 1;
                     }
@@ -509,7 +514,7 @@ Get a GitLab access token here (scope api):
             }
         }
 
-        commit.rating.insert(
+        keywords.get_mut(kw).unwrap()[old_commit_idx].rating.insert(
             name.clone(),
             Rating {
                 is_refactoring: is_refactoring,

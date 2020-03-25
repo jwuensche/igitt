@@ -3,7 +3,7 @@ name = "msr-commit-viewer"
 version = "0.1.0"
 authors = ["Fin Christensen <christensen.fin@gmail.com>"]
 edition = "2018"
-description = "View MSR commits from keywords YAML file and check commit contents"
+description = "View git commits from keywords YAML file and rate commit contents"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

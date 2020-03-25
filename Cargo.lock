@@ -366,6 +366,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cursive-aligned-view"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c61a4543684de6f60855d64861ad28f886668a9e7542cf8bd591527cbcf27998"
+dependencies = [
+ "cursive",
+]
+
+[[package]]
 name = "cursive-async-view"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -923,6 +932,7 @@ dependencies = [
  "async-std",
  "clap",
  "cursive",
+ "cursive-aligned-view",
  "cursive-async-view",
  "cursive-tabs",
  "percent-encoding",

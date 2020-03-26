@@ -29,10 +29,18 @@ struct Rating {
     comment: String,
 }
 
+fn n_a() -> String {
+    "N/A".to_string()
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Commit {
     origin: String,
     commit: String,
+    #[serde(default = "n_a")]
+    section: String,
+    #[serde(default = "n_a")]
+    time: String,
     #[serde(default)]
     rating: Map<String, Rating>,
 }
@@ -340,9 +348,9 @@ Get a GitLab access token here (scope api):
                 keywords_dialog.set_title(format!(
                     "Loading '{keyword}' / {section} | {origin} @ {commit} - {date}",
                     keyword = keyword,
-                    section = "N/A",
+                    section = commit_clone.section,
                     origin = commit_clone.origin,
-                    date = "N/A",
+                    date = commit_clone.time,
                     commit = commit_clone.commit,
                 ));
 
@@ -456,9 +464,9 @@ Get a GitLab access token here (scope api):
                                 "'{keyword}' / {section} | {origin} @ {commit} - {date}",
                                 keyword = keyword,
                                 origin = commit_clone.origin,
-                                section = "N/A",
+                                section = commit_clone.section,
                                 commit = commit_clone.commit,
-                                date = "N/A",
+                                date = commit_clone.time,
                             ));
                         }))
                         .unwrap();

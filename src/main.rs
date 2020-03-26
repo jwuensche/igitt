@@ -16,6 +16,7 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cmp::{Ord, Ordering};
 use std::collections::BTreeMap as Map;
 use std::collections::HashSet;
 use std::fs::File;
@@ -49,6 +50,20 @@ enum Paging {
     Next(String, bool),
     Prev(String, bool),
     Finish(String, bool),
+}
+
+#[derive(Debug)]
+struct EvaluatedKeyword {
+    keyword: String,
+    true_positives: usize,
+    false_positives: usize,
+    unsure: usize,
+}
+
+enum EvaluationResult {
+    TruePositive,
+    FalsePositive,
+    Unsure,
 }
 
 #[async_std::main]
@@ -85,6 +100,12 @@ Get a GitLab access token here (scope api):
                 .value_name("TOKEN")
                 .required(true),
         )
+        .arg(
+            Arg::with_name("evaluate")
+                .help("Evaluates true positives, false positives, and unsure values")
+                .long("evaluate")
+                .short("e"),
+        )
         .get_matches();
 
     let keywords_yaml_path = matches
@@ -103,6 +124,50 @@ Get a GitLab access token here (scope api):
     let gitlab_token = matches
         .value_of("gitlab-token")
         .context("gitlab-token not defined")?;
+    let evaluation = matches.is_present("evaluate");
+
+    if evaluation {
+        let evaluation_result: Vec<EvaluatedKeyword> = keywords
+            .iter()
+            .map(|(keyword, all_commits)| {
+                let evaluated_commits: Vec<EvaluationResult> =
+                    all_commits
+                        .iter()
+                        .map(|commit| {
+                            let found_results = commit.rating.iter().fold(
+                                (0, 0),
+                                |(positive, negative), (_, rate)| match rate.is_refactoring {
+                                    true => (positive + 1, negative),
+                                    false => (positive, negative + 1),
+                                },
+                            );
+                            match found_results.0.cmp(&found_results.1) {
+                                Ordering::Greater => EvaluationResult::TruePositive,
+                                Ordering::Equal => EvaluationResult::Unsure,
+                                Ordering::Less => EvaluationResult::FalsePositive,
+                            }
+                        })
+                        .collect();
+                EvaluatedKeyword {
+                    keyword: keyword.to_string(),
+                    true_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                        EvaluationResult::TruePositive => acc + 1,
+                        _ => acc,
+                    }),
+                    false_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                        EvaluationResult::FalsePositive => acc + 1,
+                        _ => acc,
+                    }),
+                    unsure: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                        EvaluationResult::Unsure => acc + 1,
+                        _ => acc,
+                    }),
+                }
+            })
+            .collect();
+        println!("{:#?}", evaluation_result);
+        std::process::exit(0);
+    }
 
     let url_re = Regex::new(r"^https://(.+?)/(.+?)(:?\.git)?$")?;
 

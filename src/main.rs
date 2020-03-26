@@ -1,3 +1,4 @@
+use ansi_term::Color::{Cyan, Green};
 use anyhow::{bail, Context, Result};
 use async_std::prelude::*;
 use async_std::task;
@@ -64,6 +65,20 @@ enum EvaluationResult {
     TruePositive,
     FalsePositive,
     Unsure,
+}
+
+impl EvaluatedKeyword {
+    fn to_colored_string(&self) -> String {
+        format!(
+            "{}:\n\t{}: {}\n\t{}: {}\n\tUnsure: {}\n",
+            self.keyword,
+            Green.paint("True Positives"),
+            self.true_positives,
+            Cyan.paint("False Positives"),
+            self.false_positives,
+            self.unsure,
+        )
+    }
 }
 
 #[async_std::main]
@@ -165,7 +180,15 @@ Get a GitLab access token here (scope api):
                 }
             })
             .collect();
-        println!("{:#?}", evaluation_result);
+        println!(
+            "{}",
+            evaluation_result
+                .iter()
+                .fold(String::new(), |mut acc, elem| {
+                    acc.push_str(elem.to_colored_string().as_str());
+                    acc
+                })
+        );
         std::process::exit(0);
     }
 

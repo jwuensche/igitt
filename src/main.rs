@@ -21,6 +21,7 @@ use std::cmp::{Ord, Ordering};
 use std::collections::BTreeMap as Map;
 use std::collections::HashSet;
 use std::fs::File;
+use std::io::Write;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
@@ -79,6 +80,13 @@ impl EvaluatedKeyword {
             self.unsure,
         )
     }
+
+    fn to_csv_row(&self) -> String {
+        format!(
+            "{},{},{},{}\n",
+            self.keyword, self.true_positives, self.false_positives, self.unsure
+        )
+    }
 }
 
 #[async_std::main]
@@ -106,6 +114,7 @@ Get a GitLab access token here (scope api):
                 .help("Sets the GitHub API Token")
                 .long("github")
                 .value_name("TOKEN")
+                .takes_value(true)
                 .required(true),
         )
         .arg(
@@ -113,6 +122,7 @@ Get a GitLab access token here (scope api):
                 .help("Sets the GitLab API Token")
                 .long("gitlab")
                 .value_name("TOKEN")
+                .takes_value(true)
                 .required(true),
         )
         .arg(
@@ -120,6 +130,14 @@ Get a GitLab access token here (scope api):
                 .help("Evaluates true positives, false positives, and unsure values")
                 .long("evaluate")
                 .short("e"),
+        )
+        .arg(
+            Arg::with_name("csv")
+                .help("Sets if the evaluation result should be saved as csv")
+                .requires("evaluate")
+                .short("c")
+                .long("csv")
+                .takes_value(true),
         )
         .get_matches();
 
@@ -140,6 +158,7 @@ Get a GitLab access token here (scope api):
         .value_of("gitlab-token")
         .context("gitlab-token not defined")?;
     let evaluation = matches.is_present("evaluate");
+    let csv_path = matches.value_of("csv");
 
     if evaluation {
         let evaluation_result: Vec<EvaluatedKeyword> = keywords
@@ -189,6 +208,14 @@ Get a GitLab access token here (scope api):
                     acc
                 })
         );
+        if let Some(valid_csv_path) = csv_path {
+            let mut csv_file = File::create(valid_csv_path)?;
+            csv_file.write("keyword,true_positives,false_positives,unsure\n".as_bytes())?;
+            for row in evaluation_result.iter().map(|entry| entry.to_csv_row()) {
+                csv_file.write(row.as_bytes())?;
+            }
+            println!("Saved as csv in {}", valid_csv_path);
+        }
         std::process::exit(0);
     }
 

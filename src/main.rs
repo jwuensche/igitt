@@ -36,9 +36,15 @@ fn n_a() -> String {
     "N/A".to_string()
 }
 
+fn moved() -> bool {
+    false
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Commit {
     origin: String,
+    #[serde(default = "moved")]
+    moved: bool,
     commit: String,
     #[serde(default = "n_a")]
     section: String,
@@ -49,9 +55,19 @@ struct Commit {
 }
 
 enum Paging {
-    Next(String, bool),
-    Prev(String, bool),
-    Finish(String, bool),
+    Next(String, bool, bool),
+    Prev(String, bool, bool),
+    Finish(String, bool, bool),
+}
+
+enum Quit {
+    SaveAndQuit,
+    Quit,
+}
+
+enum Load {
+    UseTmp,
+    No,
 }
 
 #[derive(Debug)]
@@ -145,8 +161,16 @@ Get a GitLab access token here (scope api):
         .value_of("KEYWORDS_YAML")
         .context("KEYWORDS_YAML not provided")?
         .to_string();
+    let mut keywords_tmp_path = keywords_yaml_path.clone();
+    keywords_tmp_path.insert_str(0, ".#");
     let mut keywords: Map<String, Vec<Commit>> =
         serde_yaml::from_reader(File::open(&keywords_yaml_path)?)?;
+    let tmp_keywords: Option<Map<String, Vec<Commit>>> = {
+        let file = File::open(&keywords_tmp_path).map_or(None, |x| Some(x));
+        file.map_or(None, |x| {
+            serde_yaml::from_reader(x).map_or(None, |x| Some(x))
+        })
+    };
     let commits = keywords.values().flat_map(|cs| cs);
     let authors = commits
         .flat_map(|c| c.rating.keys().map(|k| k.clone()))
@@ -223,6 +247,8 @@ Get a GitLab access token here (scope api):
 
     let (cb_sink_tx, cb_sink_rx) = channel();
     let (readonly_name_tx, readonly_name_rx) = channel();
+    let (load_tx, load_rx) = channel();
+    let tmp_found = tmp_keywords.is_some();
     let siv_task_handle = task::spawn(async move {
         let mut siv = Cursive::default();
         cb_sink_tx.send(siv.cb_sink().clone()).unwrap();
@@ -240,7 +266,7 @@ Get a GitLab access token here (scope api):
                 .on_submit(move |siv, name| {
                     if !name.is_empty() {
                         readonly_name_new_tx
-                            .send((false, name.to_string()))
+                            .send((false, false, name.to_string()))
                             .unwrap();
                         siv.pop_layer();
                     }
@@ -255,7 +281,7 @@ Get a GitLab access token here (scope api):
                 .to_string();
 
             if !name.is_empty() {
-                readonly_name_ok_tx.send((false, name)).unwrap();
+                readonly_name_ok_tx.send((false, false, name)).unwrap();
                 siv.pop_layer();
             }
         }));
@@ -266,7 +292,9 @@ Get a GitLab access token here (scope api):
             "Please select a rating (press enter) to view",
         ));
         let mut view_select = SelectView::new().on_submit(move |siv, author: &String| {
-            readonly_name_view_tx.send((true, author.clone())).unwrap();
+            readonly_name_view_tx
+                .send((true, false, author.clone()))
+                .unwrap();
             siv.pop_layer();
         });
         for rating in &authors {
@@ -280,20 +308,63 @@ Get a GitLab access token here (scope api):
             "Please select a rating (press enter) to edit",
         ));
         let mut edit_select = SelectView::new().on_submit(move |siv, author: &String| {
-            readonly_name_edit_tx.send((false, author.clone())).unwrap();
-            siv.pop_layer();
+            let send_edit_yes = readonly_name_edit_tx.clone();
+            let send_edit_no = readonly_name_edit_tx.clone();
+            let author_name_yes = author.clone();
+            let author_name_no = author.clone();
+            siv.add_layer(
+                Dialog::around(TextView::new(
+                    "Would you like to proceed from your last reviewed commit?",
+                ))
+                .button("Yes", move |s| {
+                    send_edit_yes
+                        .send((false, true, author_name_yes.clone()))
+                        .unwrap();
+                    s.pop_layer();
+                    s.pop_layer();
+                })
+                .button("No", move |s| {
+                    send_edit_no
+                        .send((false, false, author_name_no.clone()))
+                        .unwrap();
+                    s.pop_layer();
+                    s.pop_layer();
+                }),
+            );
         });
         for rating in &authors {
             edit_select.add_item(rating.clone(), rating.clone());
         }
         edit_tab.add_child(edit_select);
         tabs.add_tab("Edit", edit_tab);
-
         siv.add_layer(tabs.max_width(60));
+
+        if tmp_found {
+            let load_tx_yes = load_tx.clone();
+            let load_tx_no = load_tx.clone();
+            siv.add_layer(
+                Dialog::around(
+                    TextView::new("A temporary file has been found, would you like to use it? (This means that the last time msr-commit-viewer has been run the data hasn't been saved properly, it is recommended you load the temporary file)"))
+                    .button("Yes", move |siv| {
+                        load_tx_yes.send(Load::UseTmp).unwrap();
+                        siv.pop_layer();
+                    })
+                    .button("No", move |siv| {
+                        load_tx_no.send(Load::No).unwrap();
+                        siv.pop_layer();
+                    }));
+        } else {
+            load_tx.send(Load::No).unwrap();
+        }
         siv.run();
     });
+
     let cb_sink = cb_sink_rx.recv().unwrap();
-    let (readonly, name) = readonly_name_rx.recv().unwrap();
+    match load_rx.recv().unwrap() {
+        Load::UseTmp => keywords = tmp_keywords.unwrap(),
+        Load::No => {}
+    }
+    let (readonly, resume, name) = readonly_name_rx.recv().unwrap();
 
     let (paging_tx, paging_rx) = channel();
     let (quit_tx, quit_rx) = channel();
@@ -319,7 +390,17 @@ Get a GitLab access token here (scope api):
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
                         .is_selected();
-                    prev_tx.send(Paging::Prev(comment, is_refactoring)).unwrap();
+                    let msg_field = siv
+                        .find_name::<TextView>("message_field")
+                        .unwrap()
+                        .get_content();
+                    let moved = match msg_field.source() {
+                        "!! Commit message not available !!" => true,
+                        _ => false,
+                    };
+                    prev_tx
+                        .send(Paging::Prev(comment, is_refactoring, moved))
+                        .unwrap();
                 })
                 .disabled()
                 .with_name("prev"),
@@ -340,7 +421,17 @@ Get a GitLab access token here (scope api):
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
                         .is_selected();
-                    next_tx.send(Paging::Next(comment, is_refactoring)).unwrap();
+                    let msg_field = siv
+                        .find_name::<TextView>("message_field")
+                        .unwrap()
+                        .get_content();
+                    let moved = match msg_field.source() {
+                        "!! Commit message not available !!" => true,
+                        _ => false,
+                    };
+                    next_tx
+                        .send(Paging::Next(comment, is_refactoring, moved))
+                        .unwrap();
                 })
                 .disabled()
                 .with_name("next"),
@@ -361,8 +452,16 @@ Get a GitLab access token here (scope api):
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
                         .is_selected();
+                    let msg_field = siv
+                        .find_name::<TextView>("message_field")
+                        .unwrap()
+                        .get_content();
+                    let moved = match msg_field.source() {
+                        "!! Commit message not available !!" => true,
+                        _ => false,
+                    };
                     finish_tx
-                        .send(Paging::Finish(comment, is_refactoring))
+                        .send(Paging::Finish(comment, is_refactoring, moved))
                         .unwrap();
                 })
                 .disabled()
@@ -372,14 +471,17 @@ Get a GitLab access token here (scope api):
             let keywords_dialog = Panel::new(keywords_layout)
                 .with_name("keywords_dialog")
                 .full_screen();
-
             siv.add_layer(keywords_dialog);
-
             siv.add_global_callback('q', move |siv| {
                 let quit_tx_cp = quit_tx.clone();
+                let quit_tx_save = quit_tx.clone();
                 siv.add_layer(
-                    Dialog::text("Do you really want to quit and discard all changes?")
-                        .button("Yes", move |_siv| quit_tx_cp.send(()).unwrap())
+                    // TODO: Add here an option to save!
+                    Dialog::text("Do you really want to quit?")
+                        .button("Save and Quit", move |_siv| {
+                            quit_tx_save.send(Quit::SaveAndQuit).unwrap()
+                        })
+                        .button("Quit", move |_siv| quit_tx_cp.send(Quit::Quit).unwrap())
                         .button("No", move |siv| {
                             siv.pop_layer();
                         }),
@@ -392,8 +494,34 @@ Get a GitLab access token here (scope api):
     let mut finished = false;
     let keys = keywords.keys().map(|k| k.clone()).collect::<Vec<_>>();
     let key_len = keys.len();
-    let mut key_idx = 0;
-    let mut commit_idx = 0;
+    let mut key_idx;
+    let mut commit_idx;
+    if resume {
+        let indexes = keywords
+            .iter()
+            .map(|(_, commits)| {
+                commits.iter().enumerate().fold(None, |acc, (id, commit)| {
+                    if commit.rating.get(&name).is_some() {
+                        Some(id)
+                    } else {
+                        acc
+                    }
+                })
+            })
+            .enumerate()
+            .filter(|(_, entry)| entry.is_some())
+            .last();
+        if let Some(last_index) = indexes {
+            key_idx = last_index.0;
+            commit_idx = last_index.1.unwrap();
+        } else {
+            key_idx = 0;
+            commit_idx = 0;
+        }
+    } else {
+        key_idx = 0;
+        commit_idx = 0;
+    }
     'outer: loop {
         let kw = &keys[key_idx];
         let commits = keywords.get(kw).unwrap();
@@ -488,6 +616,7 @@ Get a GitLab access token here (scope api):
                     linear.add_child(
                         Panel::new(
                             TextView::new(message)
+                                .with_name("message_field")
                                 .scrollable()
                                 .scroll_x(false)
                                 .scroll_y(true),
@@ -504,6 +633,7 @@ Get a GitLab access token here (scope api):
                     linear.add_child(
                         Panel::new(
                             TextView::new(diff)
+                                .with_name("diff_field")
                                 .scrollable()
                                 .scroll_x(false)
                                 .scroll_y(true),
@@ -597,21 +727,27 @@ Get a GitLab access token here (scope api):
 
         let comment;
         let is_refactoring;
+        let moved;
 
         let old_commit_idx = commit_idx;
         loop {
             match quit_rx.try_recv() {
-                Ok(_) => {
+                Ok(Quit::Quit) => {
                     save = false;
+                    break 'outer;
+                }
+                Ok(Quit::SaveAndQuit) => {
+                    save = true;
                     break 'outer;
                 }
                 Err(_) => {}
             }
 
             match paging_rx.try_recv() {
-                Ok(Paging::Next(c, r)) => {
+                Ok(Paging::Next(c, r, m)) => {
                     comment = c;
                     is_refactoring = r;
+                    moved = m;
                     if commit_idx + 1 >= commits_len {
                         key_idx += 1;
                         commit_idx = 0;
@@ -620,9 +756,10 @@ Get a GitLab access token here (scope api):
                     }
                     break;
                 }
-                Ok(Paging::Prev(c, r)) => {
+                Ok(Paging::Prev(c, r, m)) => {
                     comment = c;
                     is_refactoring = r;
+                    moved = m;
                     if commit_idx == 0 {
                         key_idx -= 1;
                         let kw = &keys[key_idx];
@@ -633,9 +770,10 @@ Get a GitLab access token here (scope api):
                     }
                     break;
                 }
-                Ok(Paging::Finish(c, r)) => {
+                Ok(Paging::Finish(c, r, m)) => {
                     comment = c;
                     is_refactoring = r;
+                    moved = m;
                     finished = true;
                     break;
                 }
@@ -643,13 +781,19 @@ Get a GitLab access token here (scope api):
             }
         }
 
+        keywords.get_mut(kw).unwrap()[old_commit_idx].moved = moved;
+
         keywords.get_mut(kw).unwrap()[old_commit_idx].rating.insert(
             name.clone(),
             Rating {
-                is_refactoring: is_refactoring,
-                comment: comment,
+                is_refactoring,
+                comment,
             },
         );
+
+        // Save to final file
+        // This may be replaced with a temporary file
+        serde_yaml::to_writer(File::create(&keywords_tmp_path)?, &keywords)?;
 
         if finished {
             break 'outer;
@@ -658,6 +802,7 @@ Get a GitLab access token here (scope api):
 
     if save {
         serde_yaml::to_writer(File::create(&keywords_yaml_path)?, &keywords)?;
+        std::fs::remove_file(&keywords_tmp_path)?;
     }
 
     cb_sink

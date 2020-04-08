@@ -191,7 +191,10 @@ Get a GitLab access token here (scope api):
                 let evaluated_commits: Vec<EvaluationResult> =
                     all_commits
                         .iter()
-                        .map(|commit| {
+                        .filter_map(|commit| {
+                            if commit.moved {
+                                return None;
+                            }
                             let found_results = commit.rating.iter().fold(
                                 (0, 0),
                                 |(positive, negative), (_, rate)| match rate.is_refactoring {
@@ -200,9 +203,9 @@ Get a GitLab access token here (scope api):
                                 },
                             );
                             match found_results.0.cmp(&found_results.1) {
-                                Ordering::Greater => EvaluationResult::TruePositive,
-                                Ordering::Equal => EvaluationResult::Unsure,
-                                Ordering::Less => EvaluationResult::FalsePositive,
+                                Ordering::Greater => Some(EvaluationResult::TruePositive),
+                                Ordering::Equal => Some(EvaluationResult::Unsure),
+                                Ordering::Less => Some(EvaluationResult::FalsePositive),
                             }
                         })
                         .collect();

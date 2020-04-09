@@ -4,10 +4,12 @@ use async_std::prelude::*;
 use async_std::task;
 use clap::{App, Arg};
 use cursive::align::HAlign;
+use cursive::theme::{PaletteColor, Style};
+use cursive::utils::span::SpannedString;
 use cursive::view::{Nameable, Resizable, Scrollable};
 use cursive::views::{
-    Button, Dialog, DummyView, EditView, LinearLayout, Panel, RadioButton, RadioGroup, SelectView,
-    TextArea, TextView,
+    Button, Checkbox, Dialog, DummyView, EditView, LinearLayout, Panel, RadioButton, RadioGroup,
+    SelectView, TextArea, TextView,
 };
 use cursive::Cursive;
 use cursive_aligned_view::Alignable;
@@ -60,6 +62,7 @@ enum Paging {
     Finish(String, bool, bool),
 }
 
+#[derive(Clone)]
 enum Quit {
     SaveAndQuit,
     Quit,
@@ -70,7 +73,7 @@ enum Load {
     No,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct EvaluatedKeyword {
     keyword: String,
     true_positives: usize,
@@ -87,7 +90,7 @@ enum EvaluationResult {
 impl EvaluatedKeyword {
     fn to_colored_string(&self) -> String {
         format!(
-            "{}:\n\t{}: {}\n\t{}: {}\n\tUnsure: {}\n",
+            "{}:\n  {}: {}\n  {}: {}\n  Unsure: {}\n",
             self.keyword,
             Green.paint("True Positives"),
             self.true_positives,
@@ -97,12 +100,87 @@ impl EvaluatedKeyword {
         )
     }
 
+    fn to_styled_string(&self) -> SpannedString<Style> {
+        let mut content = SpannedString::new();
+        content.append_styled(format!("{}:\n", self.keyword), PaletteColor::Primary);
+        content.append_styled(format!("  {}", "True Positives"), PaletteColor::Secondary);
+        content.append_styled(
+            format!(": {}\n", self.true_positives),
+            PaletteColor::Primary,
+        );
+        content.append_styled(format!("  {}", "False Positives"), PaletteColor::Tertiary);
+        content.append_styled(
+            format!(": {}\n", self.false_positives),
+            PaletteColor::Primary,
+        );
+        content.append_styled(
+            format!("  Unsure: {}\n", self.unsure),
+            PaletteColor::Primary,
+        );
+        content
+    }
+
     fn to_csv_row(&self) -> String {
         format!(
             "{},{},{},{}\n",
             self.keyword, self.true_positives, self.false_positives, self.unsure
         )
     }
+}
+
+async fn evaluate_keywords(keywords: Map<String, Vec<Commit>>) -> Vec<EvaluatedKeyword> {
+    keywords
+        .iter()
+        .map(|(keyword, all_commits)| {
+            let evaluated_commits: Vec<EvaluationResult> = all_commits
+                .iter()
+                .filter_map(|commit| {
+                    if commit.moved {
+                        return None;
+                    }
+                    let found_results =
+                        commit
+                            .rating
+                            .iter()
+                            .fold((0, 0), |(positive, negative), (_, rate)| {
+                                match rate.is_refactoring {
+                                    true => (positive + 1, negative),
+                                    false => (positive, negative + 1),
+                                }
+                            });
+                    match found_results.0.cmp(&found_results.1) {
+                        Ordering::Greater => Some(EvaluationResult::TruePositive),
+                        Ordering::Equal => Some(EvaluationResult::Unsure),
+                        Ordering::Less => Some(EvaluationResult::FalsePositive),
+                    }
+                })
+                .collect();
+            EvaluatedKeyword {
+                keyword: keyword.to_string(),
+                true_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                    EvaluationResult::TruePositive => acc + 1,
+                    _ => acc,
+                }),
+                false_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                    EvaluationResult::FalsePositive => acc + 1,
+                    _ => acc,
+                }),
+                unsure: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                    EvaluationResult::Unsure => acc + 1,
+                    _ => acc,
+                }),
+            }
+        })
+        .collect()
+}
+
+fn save_csv(result: Vec<EvaluatedKeyword>, path: String) -> Result<()> {
+    let mut csv_file = File::create(path)?;
+    csv_file.write("keyword,true_positives,false_positives,unsure\n".as_bytes())?;
+    for row in result.iter().map(|entry| entry.to_csv_row()) {
+        csv_file.write(row.as_bytes())?;
+    }
+    Ok(())
 }
 
 #[async_std::main]
@@ -185,47 +263,7 @@ Get a GitLab access token here (scope api):
     let csv_path = matches.value_of("csv");
 
     if evaluation {
-        let evaluation_result: Vec<EvaluatedKeyword> = keywords
-            .iter()
-            .map(|(keyword, all_commits)| {
-                let evaluated_commits: Vec<EvaluationResult> =
-                    all_commits
-                        .iter()
-                        .filter_map(|commit| {
-                            if commit.moved {
-                                return None;
-                            }
-                            let found_results = commit.rating.iter().fold(
-                                (0, 0),
-                                |(positive, negative), (_, rate)| match rate.is_refactoring {
-                                    true => (positive + 1, negative),
-                                    false => (positive, negative + 1),
-                                },
-                            );
-                            match found_results.0.cmp(&found_results.1) {
-                                Ordering::Greater => Some(EvaluationResult::TruePositive),
-                                Ordering::Equal => Some(EvaluationResult::Unsure),
-                                Ordering::Less => Some(EvaluationResult::FalsePositive),
-                            }
-                        })
-                        .collect();
-                EvaluatedKeyword {
-                    keyword: keyword.to_string(),
-                    true_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
-                        EvaluationResult::TruePositive => acc + 1,
-                        _ => acc,
-                    }),
-                    false_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
-                        EvaluationResult::FalsePositive => acc + 1,
-                        _ => acc,
-                    }),
-                    unsure: evaluated_commits.iter().fold(0, |acc, elem| match elem {
-                        EvaluationResult::Unsure => acc + 1,
-                        _ => acc,
-                    }),
-                }
-            })
-            .collect();
+        let evaluation_result = evaluate_keywords(keywords.clone()).await;
         println!(
             "{}",
             evaluation_result
@@ -252,6 +290,7 @@ Get a GitLab access token here (scope api):
     let (readonly_name_tx, readonly_name_rx) = channel();
     let (load_tx, load_rx) = channel();
     let tmp_found = tmp_keywords.is_some();
+    let evaluation_keywords = keywords.clone();
     let siv_task_handle = task::spawn(async move {
         let mut siv = Cursive::default();
         cb_sink_tx.send(siv.cb_sink().clone()).unwrap();
@@ -340,6 +379,51 @@ Get a GitLab access token here (scope api):
         }
         edit_tab.add_child(edit_select);
         tabs.add_tab("Edit", edit_tab);
+
+        let evaluate_tab = LinearLayout::vertical()
+            .child(
+                LinearLayout::horizontal()
+                    .child(Checkbox::new().with_name("csv_export"))
+                    .child(TextView::new("Export as csv")),
+            )
+            .child(Button::new("Evaluate", move |siv| {
+                let result =
+                    async_std::task::block_on(evaluate_keywords(evaluation_keywords.clone()));
+
+                siv.add_layer(
+                    Dialog::around(TextView::new(result.iter().fold(
+                        SpannedString::new(),
+                        |mut acc, elem| {
+                            acc.append(elem.to_styled_string());
+                            acc
+                        },
+                    )))
+                    .button("Ok", |siv| {
+                        siv.pop_layer();
+                    }),
+                );
+                if siv
+                    .find_name::<Checkbox>("csv_export")
+                    .unwrap()
+                    .is_checked()
+                {
+                    let message;
+                    match save_csv(result.clone(), "results.csv".to_string()) {
+                        Ok(_) => message = "Results saved succesfully under results.csv",
+                        Err(_) => {
+                            message =
+                                "Could not store results, try to use the --csv flag via the cli"
+                        }
+                    }
+                    siv.add_layer(Dialog::around(TextView::new(message)).button("Ok", |siv| {
+                        siv.pop_layer();
+                    }))
+                }
+            }));
+        tabs.add_tab("Evaluate", evaluate_tab);
+        tabs.set_active_tab("Edit")
+            .expect("Edit tab could not be found");
+
         siv.add_layer(tabs.max_width(60));
 
         if tmp_found {
@@ -479,7 +563,6 @@ Get a GitLab access token here (scope api):
                 let quit_tx_cp = quit_tx.clone();
                 let quit_tx_save = quit_tx.clone();
                 siv.add_layer(
-                    // TODO: Add here an option to save!
                     Dialog::text("Do you really want to quit?")
                         .button("Save and Quit", move |_siv| {
                             quit_tx_save.send(Quit::SaveAndQuit).unwrap()
@@ -493,7 +576,7 @@ Get a GitLab access token here (scope api):
         }))
         .unwrap();
 
-    let mut save = true;
+    let mut save = None;
     let mut finished = false;
     let keys = keywords.keys().map(|k| k.clone()).collect::<Vec<_>>();
     let key_len = keys.len();
@@ -736,11 +819,11 @@ Get a GitLab access token here (scope api):
         loop {
             match quit_rx.try_recv() {
                 Ok(Quit::Quit) => {
-                    save = false;
+                    save = Some(Quit::Quit);
                     break 'outer;
                 }
                 Ok(Quit::SaveAndQuit) => {
-                    save = true;
+                    save = Some(Quit::SaveAndQuit);
                     break 'outer;
                 }
                 Err(_) => {}
@@ -803,25 +886,31 @@ Get a GitLab access token here (scope api):
         }
     }
 
-    if save {
-        serde_yaml::to_writer(File::create(&keywords_yaml_path)?, &keywords)?;
-        std::fs::remove_file(&keywords_tmp_path)?;
+    match save.clone() {
+        Some(Quit::SaveAndQuit) | Some(Quit::Quit) => {
+            serde_yaml::to_writer(File::create(&keywords_yaml_path)?, &keywords)?;
+            std::fs::remove_file(&keywords_tmp_path)?;
+        }
+        None => {}
     }
 
     cb_sink
         .send(Box::new(move |siv| {
             siv.pop_layer();
 
-            if save {
-                siv.add_layer(
-                    Dialog::text(format!(
-                        "Rating successfully saved to {}",
-                        keywords_yaml_path
-                    ))
-                    .button("Ok", |siv| siv.quit()),
-                );
-            } else {
-                siv.quit();
+            match save {
+                Some(Quit::SaveAndQuit) => {
+                    siv.add_layer(
+                        Dialog::text(format!(
+                            "Rating successfully saved to {}",
+                            keywords_yaml_path
+                        ))
+                        .button("Ok", |siv| siv.quit()),
+                    );
+                }
+                _ => {
+                    siv.quit();
+                }
             }
         }))
         .unwrap();

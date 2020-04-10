@@ -1,0 +1,53 @@
+---
+change:
+  - origin: "https://github.com/python/cpython"
+    moved: false
+    commit: 7d0e18a4f8c02cb1ed799c4b818745fc447d30ec
+    section: low
+    time: 1994-04
+    rating:
+      Jean-Luc:
+        is_refactoring: false
+        comment: "This certainly doesn't seem to be a valid classification."
+  - origin: "https://gitlab.com/samba-team/samba.git"
+    moved: false
+    commit: 8592314480287edbf98daeab4a979ddec3196b55
+    section: low
+    time: 1999-08
+    rating:
+      Jean-Luc:
+        is_refactoring: false
+        comment: Bug fix
+clean:
+  - origin: "https://github.com/torvalds/linux"
+    moved: false
+    commit: 9c1bfd037f7ff8badaecb47418f109148d88bf45
+    section: high
+    time: 2008-12
+    rating:
+      Jean-Luc:
+        is_refactoring: true
+        comment: The first valid commit.
+extract:
+  - origin: "https://github.com/ruby/ruby"
+    moved: false
+    commit: ddeed4af3cb175cb138734df9547cae75d67b9a9
+    section: low
+    time: 2005-03
+    rating:
+      Jean-Luc:
+        is_refactoring: false
+        comment: ""
+  - origin: "https://github.com/ruby/ruby"
+    moved: false
+    commit: 6212cfb9c53bd93fda08915f9916a7c3ebace289
+    section: low
+    time: 2003-11
+    rating: {}
+rename:
+  - origin: "https://gitlab.com/kashell/Kawa.git"
+    moved: false
+    commit: 47163c6f4768d9682bf5fe852598bd857f921df5
+    section: low
+    time: 2004-12
+    rating: {}

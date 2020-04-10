@@ -1,7 +1,7 @@
 [package]
-name = "msr-commit-viewer"
+name = "igitt"
 version = "0.1.0"
-authors = ["Fin Christensen <christensen.fin@gmail.com>"]
+authors = ["Fin Christensen <christensen.fin@gmail.com>", "Johannes Wünsche <johannes@spacesnek.rocks>"]
 edition = "2018"
 description = "View git commits from keywords YAML file and rate commit contents"
 
@@ -22,6 +22,7 @@ cursive-tabs = "0.4.1"
 cursive-aligned-view = "0.2.1"
 ansi_term = "0.12.1"
 
+# patch for static dependencies
 curl = { version = "0.4.25", features = ["static-ssl"] }
 isahc = { version = "0.8", default-features = false, features = ["http2", "static-curl"] }
 
@@ -29,3 +30,6 @@ isahc = { version = "0.8", default-features = false, features = ["http2", "stati
 version = "0.14.0"
 default-features = false
 features = ["termion-backend"]
+
+[dev-dependencies]
+flexi_logger = "0.15.2"

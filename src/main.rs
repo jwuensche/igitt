@@ -239,8 +239,7 @@ Get a GitLab access token here (scope api):
         .value_of("KEYWORDS_YAML")
         .context("KEYWORDS_YAML not provided")?
         .to_string();
-    let mut keywords_tmp_path = keywords_yaml_path.clone();
-    keywords_tmp_path.insert_str(0, ".#");
+    let keywords_tmp_path = ".#igitt.yml";
     let mut keywords: Map<String, Vec<Commit>> =
         serde_yaml::from_reader(File::open(&keywords_yaml_path)?)?;
     let tmp_keywords: Option<Map<String, Vec<Commit>>> = {
@@ -877,8 +876,6 @@ Get a GitLab access token here (scope api):
             },
         );
 
-        // Save to final file
-        // This may be replaced with a temporary file
         serde_yaml::to_writer(File::create(&keywords_tmp_path)?, &keywords)?;
 
         if finished {

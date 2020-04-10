@@ -1,0 +1,92 @@
+on:
+  push:
+    tags:
+    - 'v*'
+    - 'ci-test'
+
+name: release
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1.0.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+    - name: Output Release URL File
+      run: echo "${{ steps.create_release.outputs.upload_url }}" > release_url
+    - name: Save Release URL File for publish
+      uses: actions/upload-artifact@v1
+      with:
+        name: release_url
+        path: release_url
+  build-linux-amd64:
+    name: Release Linux AMD64
+    needs: release
+    runs-on: ubuntu-latest
+    container: clux/muslrust:stable
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build Linux AMD64
+      run: |
+        HOME=/root cargo build --target x86_64-unknown-linux-musl --release
+        strip target/x86_64-unknown-linux-musl/release/igitt
+        mv target/x86_64-unknown-linux-musl/release/igitt $GITHUB_WORKSPACE/igitt-linux-amd64
+    - name: Load Release URL File from release job
+      uses: actions/download-artifact@v1
+      with:
+        name: release_url
+    - name: Get Release File Name & Upload URL
+      id: get_release_info
+      run: |
+        value=`cat release_url/release_url`
+        echo ::set-output name=upload_url::$value
+    - name: Upload Linux AMD64 Release Assets
+      id: upload-release-asset 
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_release_info.outputs.upload_url }}
+        asset_path: igitt-linux-amd64
+        asset_name: igitt-linux-amd64
+        asset_content_type: application/octet-stream
+  build-macos:
+    name: Release MacOS
+    needs: release
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build MacOS
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- \
+          --default-toolchain stable --profile minimal -y
+        cargo build --release
+        mv target/release/igitt $GITHUB_WORKSPACE/igitt-macos
+    - name: Load Release URL File from release job
+      uses: actions/download-artifact@v1
+      with:
+        name: release_url
+    - name: Get Release File Name & Upload URL
+      id: get_release_info
+      run: |
+        value=`cat release_url/release_url`
+        echo ::set-output name=upload_url::$value
+    - name: Upload MacOS Release Asset
+      id: upload-release-asset 
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_release_info.outputs.upload_url }}
+        asset_path: igitt-macos
+        asset_name: igitt-macos
+        asset_content_type: application/octet-stream

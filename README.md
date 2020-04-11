@@ -27,10 +27,10 @@ For Linux-based and MacOS there are pre-built binary available to download in th
 
 ```bash
 # Linux statically linked binary
-$ curl -L https://github.com/jwuensche/igitt/releases/download/v0.1.0/igitt-linux-amd64 --output igitt && chmod +x igitt
+$ curl -L https://github.com/jwuensche/igitt/releases/download/v0.1.1/igitt-linux-amd64 --output igitt && chmod +x igitt
 
 # MacOS binary
-$ curl -L https://github.com/jwuensche/igitt/releases/download/v0.1.0/igitt-macos --output igitt && chmod +x igitt
+$ curl -L https://github.com/jwuensche/igitt/releases/download/v0.1.1/igitt-macos --output igitt && chmod +x igitt
 ```
 
 ## Usage

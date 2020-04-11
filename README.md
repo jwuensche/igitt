@@ -26,15 +26,18 @@ Once you've done that be sure to save them as they cannot be reviewed again.
 For Linux-based and MacOS there are pre-built binary available to download in the github releases. If you're not on one of these platforms, have a look at the `Building` section of the README.
 
 ```bash
-$ curl _link_ --output igitt && chmod +x igitt
+# Linux statically linked binary
+$ curl -L https://github.com/jwuensche/igitt/releases/download/v0.1.0/igitt-linux-amd64 --output igitt && chmod +x igitt
+
+# MacOS binary
+$ curl -L https://github.com/jwuensche/igitt/releases/download/v0.1.0/igitt-macos --output igitt && chmod +x igitt
 ```
 
 ## Usage
 
 To start evaluating the example data
 ```bash
-# Linux based
-$ curl raw.githubcontent.com .... --output example_data.yml
+$ curl https://raw.githubusercontent.com/jwuensche/igitt/master/data/keyword_check.yaml --output example_data.yml
 $ ./igitt --gitlab your-gitlab-token --github your-github-token example_data.yml
 ```
 
@@ -44,9 +47,11 @@ Select new and enter your name and then you can start evaluating.
 The program is quitable anytime with `q`, it will ask you to save your progress. The next time you can just continue by selecting your name in `Edit` at the beginning, it will ask you to continue from your last entry.
 
 ## Evaluation
-Once all result have been entered by the user you can start the evaluation. This can be done via the `-e` flag
+Once all result have been entered by the user you can start the evaluation. This can be done by just opening the tool again or via the -e flag.
 ```bash
-$ igitt --gitlab your-gitlab-token --github your-github-token example_data.yml
+$ ./igitt --gitlab your-gitlab-token --github your-github-token example_data.yml
+# or
+$ ./igitt --gitlab your-gitlab-token --github your-github-token example_data.yml
 ```
 
 ## How to get working with your own commits?

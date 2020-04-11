@@ -859,6 +859,7 @@ Get a GitLab access token here (scope api):
                     comment = c;
                     is_refactoring = r;
                     moved = m;
+                    save = Some(Quit::SaveAndQuit);
                     finished = true;
                     break;
                 }

@@ -20,7 +20,9 @@ This tool should ease your work to check for the validity and soundness of an am
 We originally developed this tool for a repository mining reasearch paper, in which we classified commits due to certain occuring phrases and words in their messages. Checking all of them by hand is a lot of work but necessary to prove your approach is correct, so we developed a tool for it `igitt`.
 
 ## Preparation
-To start you need a gitlab and github API key, you can generate them in your respecting profiles (more on that on [github](https://help.github.com/en/github/authenticating-to-github/creating-a-personal-access-token-for-the-command-line) or [gitlab](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html)).
+To start you need a gitlab and github API key, you can generate them in your respecting profiles (more on that on [github](https://help.github.com/en/github/authenticating-to-github/creating-a-personal-access-token-for-the-command-line) or [gitlab](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html)).  
+> Be sure to check the `api` field in the gitlab token creation.
+
 Once you've done that be sure to save them as they cannot be reviewed again.
 
 For Linux-based and MacOS there are pre-built binary available to download in the github releases. If you're not on one of these platforms, have a look at the `Building` section of the README.

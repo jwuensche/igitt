@@ -476,14 +476,10 @@ Get a GitLab access token here (scope api):
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
                         .is_selected();
-                    let msg_field = siv
-                        .find_name::<TextView>("message_field")
+                    let moved = siv
+                        .find_name::<RadioButton<bool>>("is_broken")
                         .unwrap()
-                        .get_content();
-                    let moved = match msg_field.source() {
-                        "!! Commit message not available !!" => true,
-                        _ => false,
-                    };
+                        .is_selected();
                     prev_tx
                         .send(Paging::Prev(comment, is_refactoring, moved))
                         .unwrap();
@@ -507,14 +503,10 @@ Get a GitLab access token here (scope api):
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
                         .is_selected();
-                    let msg_field = siv
-                        .find_name::<TextView>("message_field")
+                    let moved = siv
+                        .find_name::<RadioButton<bool>>("is_broken")
                         .unwrap()
-                        .get_content();
-                    let moved = match msg_field.source() {
-                        "!! Commit message not available !!" => true,
-                        _ => false,
-                    };
+                        .is_selected();
                     next_tx
                         .send(Paging::Next(comment, is_refactoring, moved))
                         .unwrap();
@@ -538,14 +530,10 @@ Get a GitLab access token here (scope api):
                         .find_name::<RadioButton<bool>>("is_refactoring")
                         .unwrap()
                         .is_selected();
-                    let msg_field = siv
-                        .find_name::<TextView>("message_field")
+                    let moved = siv
+                        .find_name::<RadioButton<bool>>("is_broken")
                         .unwrap()
-                        .get_content();
-                    let moved = match msg_field.source() {
-                        "!! Commit message not available !!" => true,
-                        _ => false,
-                    };
+                        .is_selected();
                     finish_tx
                         .send(Paging::Finish(comment, is_refactoring, moved))
                         .unwrap();
@@ -735,6 +723,8 @@ Get a GitLab access token here (scope api):
                         radio_group.button(true, "This commit is a valid refactoring");
                     let mut invalid_btn =
                         radio_group.button(false, "This commit does not contain refactoring");
+                    let mut broken_btn =
+                        radio_group.button(false, "This commit seems to be no longer available");
 
                     let mut comment_area = TextArea::new().content(
                         match commit_clone.rating.get_key_value(&name_clone) {
@@ -743,27 +733,35 @@ Get a GitLab access token here (scope api):
                         },
                     );
 
-                    match commit_clone.rating.get_key_value(&name_clone) {
-                        Some(val) => {
-                            if val.1.is_refactoring {
-                                valid_btn.select();
-                            } else {
+                    if commit_clone.moved {
+                        valid_btn.disable();
+                        invalid_btn.disable();
+                        broken_btn.select();
+                    } else {
+                        match commit_clone.rating.get_key_value(&name_clone) {
+                            Some(val) => {
+                                if val.1.is_refactoring {
+                                    valid_btn.select();
+                                } else {
+                                    invalid_btn.select();
+                                }
+                            }
+                            None => {
                                 invalid_btn.select();
                             }
-                        }
-                        None => {
-                            invalid_btn.select();
                         }
                     }
 
                     if readonly {
                         valid_btn.disable();
                         invalid_btn.disable();
+                        broken_btn.disable();
                         comment_area.disable();
                     }
 
                     rating_layout.add_child(valid_btn.with_name("is_refactoring"));
                     rating_layout.add_child(invalid_btn);
+                    rating_layout.add_child(broken_btn.with_name("is_broken"));
                     rating_layout.add_child(TextView::new("\nComment:"));
                     rating_layout.add_child(comment_area.with_name("comment").min_height(3));
 
@@ -887,7 +885,7 @@ Get a GitLab access token here (scope api):
     match save.clone() {
         Some(Quit::SaveAndQuit) | Some(Quit::Quit) => {
             serde_yaml::to_writer(File::create(&keywords_yaml_path)?, &keywords)?;
-            std::fs::remove_file(&keywords_tmp_path)?;
+            std::fs::remove_file(&keywords_tmp_path).ok();
         }
         None => {}
     }

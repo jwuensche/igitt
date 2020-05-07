@@ -143,9 +143,10 @@ async fn evaluate_keywords(keywords: Map<String, Vec<Commit>>) -> Vec<EvaluatedK
                             .rating
                             .iter()
                             .fold((0, 0), |(positive, negative), (_, rate)| {
-                                match rate.is_refactoring {
-                                    true => (positive + 1, negative),
-                                    false => (positive, negative + 1),
+                                if rate.is_refactoring {
+                                    (positive + 1, negative)
+                                } else {
+                                    (positive, negative + 1)
                                 }
                             });
                     match found_results.0.cmp(&found_results.1) {
@@ -176,9 +177,9 @@ async fn evaluate_keywords(keywords: Map<String, Vec<Commit>>) -> Vec<EvaluatedK
 
 fn save_csv(result: Vec<EvaluatedKeyword>, path: String) -> Result<()> {
     let mut csv_file = File::create(path)?;
-    csv_file.write("keyword,true_positives,false_positives,unsure\n".as_bytes())?;
+    csv_file.write_all("keyword,true_positives,false_positives,unsure\n".as_bytes())?;
     for row in result.iter().map(|entry| entry.to_csv_row()) {
-        csv_file.write(row.as_bytes())?;
+        csv_file.write_all(row.as_bytes())?;
     }
     Ok(())
 }
@@ -243,14 +244,12 @@ Get a GitLab access token here (scope api):
     let mut keywords: Map<String, Vec<Commit>> =
         serde_yaml::from_reader(File::open(&keywords_yaml_path)?)?;
     let tmp_keywords: Option<Map<String, Vec<Commit>>> = {
-        let file = File::open(&keywords_tmp_path).map_or(None, |x| Some(x));
-        file.map_or(None, |x| {
-            serde_yaml::from_reader(x).map_or(None, |x| Some(x))
-        })
+        let file = File::open(&keywords_tmp_path).map_or(None, Some);
+        file.and_then(|x| serde_yaml::from_reader(x).map_or(None, Some))
     };
-    let commits = keywords.values().flat_map(|cs| cs);
+    let commits = keywords.values().flatten();
     let authors = commits
-        .flat_map(|c| c.rating.keys().map(|k| k.clone()))
+        .flat_map(|c| c.rating.keys().cloned())
         .collect::<HashSet<_>>();
     let github_token = matches
         .value_of("github-token")
@@ -274,9 +273,9 @@ Get a GitLab access token here (scope api):
         );
         if let Some(valid_csv_path) = csv_path {
             let mut csv_file = File::create(valid_csv_path)?;
-            csv_file.write("keyword,true_positives,false_positives,unsure\n".as_bytes())?;
+            csv_file.write_all("keyword,true_positives,false_positives,unsure\n".as_bytes())?;
             for row in evaluation_result.iter().map(|entry| entry.to_csv_row()) {
-                csv_file.write(row.as_bytes())?;
+                csv_file.write_all(row.as_bytes())?;
             }
             println!("Saved as csv in {}", valid_csv_path);
         }
@@ -407,7 +406,7 @@ Get a GitLab access token here (scope api):
                     .is_checked()
                 {
                     let message;
-                    match save_csv(result.clone(), "results.csv".to_string()) {
+                    match save_csv(result, "results.csv".to_string()) {
                         Ok(_) => message = "Results saved succesfully under results.csv",
                         Err(_) => {
                             message =
@@ -565,7 +564,7 @@ Get a GitLab access token here (scope api):
 
     let mut save = None;
     let mut finished = false;
-    let keys = keywords.keys().map(|k| k.clone()).collect::<Vec<_>>();
+    let keys = keywords.keys().cloned().collect::<Vec<_>>();
     let key_len = keys.len();
     let mut key_idx;
     let mut commit_idx;

@@ -1,6 +1,6 @@
 [package]
 name = "igitt"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Fin Christensen <christensen.fin@gmail.com>", "Johannes Wünsche <johannes@spacesnek.rocks>"]
 edition = "2018"
 description = "View git commits from keywords YAML file and rate commit contents"

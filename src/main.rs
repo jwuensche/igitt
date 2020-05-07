@@ -186,7 +186,7 @@ fn save_csv(result: Vec<EvaluatedKeyword>, path: String) -> Result<()> {
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    let matches = App::new("MSR Commit Viewer")
+    let matches = App::new("igitt")
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -429,7 +429,7 @@ Get a GitLab access token here (scope api):
             let load_tx_no = load_tx.clone();
             siv.add_layer(
                 Dialog::around(
-                    TextView::new("A temporary file has been found, would you like to use it? (This means that the last time msr-commit-viewer has been run the data hasn't been saved properly, it is recommended you load the temporary file)"))
+                    TextView::new("A temporary file has been found, would you like to use it? (This means that the last time igitt has been run the data hasn't been saved properly, it is recommended you load the temporary file)"))
                     .button("Yes", move |siv| {
                         load_tx_yes.send(Load::UseTmp).unwrap();
                         siv.pop_layer();

@@ -6,7 +6,7 @@ use clap::{App, Arg};
 use cursive::align::HAlign;
 use cursive::theme::{PaletteColor, Style};
 use cursive::utils::span::SpannedString;
-use cursive::view::{Nameable, Resizable, Scrollable};
+use cursive::view::{Nameable, Resizable, Scrollable, View};
 use cursive::views::{
     Button, Checkbox, Dialog, DummyView, EditView, LinearLayout, Panel, RadioButton, RadioGroup,
     SelectView, TextArea, TextView,
@@ -559,6 +559,59 @@ Get a GitLab access token here (scope api):
                         }),
                 );
             });
+            siv.add_global_callback('y', move |siv| {
+                siv.find_name::<RadioButton<bool>>("is_refactoring")
+                    .and_then(|mut x| {
+                        if x.is_enabled() {
+                            x.select();
+                        }
+                        Some(x)
+                    });
+            });
+            siv.add_global_callback('n', move |siv| {
+                siv.find_name::<RadioButton<bool>>("is_not")
+                    .and_then(|mut x| {
+                        if x.is_enabled() {
+                            x.select();
+                        }
+                        Some(x)
+                    });
+            });
+            siv.add_global_callback('i', move |siv| {
+                siv.find_name::<RadioButton<bool>>("is_broken")
+                    .and_then(|mut x| {
+                        if x.is_enabled() {
+                            x.select();
+                        }
+                        Some(x)
+                    });
+            });
+            siv.add_global_callback(',', move |siv| {
+                let button = siv.find_name::<Button>("prev");
+                if let Some(mut valid) = button {
+                    if valid.is_enabled() {
+                        let result =
+                            valid.on_event(cursive::event::Event::Key(cursive::event::Key::Enter));
+                        drop(valid);
+                        if let cursive::event::EventResult::Consumed(Some(cb)) = result {
+                            cb(siv)
+                        }
+                    }
+                };
+            });
+            siv.add_global_callback('.', move |siv| {
+                let button = siv.find_name::<Button>("next");
+                if let Some(mut valid) = button {
+                    if valid.is_enabled() {
+                        let result =
+                            valid.on_event(cursive::event::Event::Key(cursive::event::Key::Enter));
+                        drop(valid);
+                        if let cursive::event::EventResult::Consumed(Some(cb)) = result {
+                            cb(siv)
+                        }
+                    }
+                };
+            });
         }))
         .unwrap();
 
@@ -759,7 +812,7 @@ Get a GitLab access token here (scope api):
                     }
 
                     rating_layout.add_child(valid_btn.with_name("is_refactoring"));
-                    rating_layout.add_child(invalid_btn);
+                    rating_layout.add_child(invalid_btn.with_name("is_not"));
                     rating_layout.add_child(broken_btn.with_name("is_broken"));
                     rating_layout.add_child(TextView::new("\nComment:"));
                     rating_layout.add_child(comment_area.with_name("comment").min_height(3));

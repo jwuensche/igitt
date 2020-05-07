@@ -48,6 +48,19 @@ Select new and enter your name and then you can start evaluating.
 
 The program is quitable anytime with `q`, it will ask you to save your progress. The next time you can just continue by selecting your name in `Edit` at the beginning, it will ask you to continue from your last entry.
 
+## Keybinds
+
+There are a few keybinds for you to use to make evaluating faster:
+
+| Key | Action                 |
+|-----|------------------------|
+| `q` | Quit                   |
+| `y` | This is a refactoring  |
+| `n` | This is no refactoring |
+| `i` | This commit is invalid |
+| `,` | Go to prev commit      |
+| `.` | Go to next commit      |
+
 ## Evaluation
 Once all result have been entered by the user you can start the evaluation. This can be done by just opening the tool again or via the -e flag.
 ```bash

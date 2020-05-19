@@ -15,6 +15,7 @@ use cursive::Cursive;
 use cursive_aligned_view::Alignable;
 use cursive_async_view::{AsyncState, AsyncView};
 use cursive_tabs::TabPanel;
+use itertools::Itertools;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -131,7 +132,7 @@ impl EvaluatedKeyword {
 async fn evaluate_keywords(keywords: Map<String, Vec<Commit>>) -> Vec<EvaluatedKeyword> {
     keywords
         .iter()
-        .map(|(keyword, all_commits)| {
+        .flat_map(|(keyword, all_commits)| {
             let evaluated_commits: Vec<EvaluationResult> = all_commits
                 .iter()
                 .filter_map(|commit| {
@@ -156,21 +157,72 @@ async fn evaluate_keywords(keywords: Map<String, Vec<Commit>>) -> Vec<EvaluatedK
                     }
                 })
                 .collect();
-            EvaluatedKeyword {
-                keyword: keyword.to_string(),
-                true_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
-                    EvaluationResult::TruePositive => acc + 1,
-                    _ => acc,
-                }),
-                false_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
-                    EvaluationResult::FalsePositive => acc + 1,
-                    _ => acc,
-                }),
-                unsure: evaluated_commits.iter().fold(0, |acc, elem| match elem {
-                    EvaluationResult::Unsure => acc + 1,
-                    _ => acc,
-                }),
-            }
+
+            let groups = all_commits
+                .iter()
+                .group_by(|commit| &commit.section);
+            let mut evaluated_sections: Vec<EvaluatedKeyword> = groups
+                .into_iter()
+                .map(move |(section, group)| {
+                    let evaluated_commits: Vec<EvaluationResult> = group
+                        .filter_map(|commit| {
+                            if commit.moved {
+                                return None;
+                            }
+                            let found_results = commit.rating
+                                .iter()
+                                .fold((0, 0), |(positive, negative), (_, rate)| {
+                                    if rate.is_refactoring {
+                                        (positive + 1, negative)
+                                    } else {
+                                        (positive, negative + 1)
+                                    }
+                                });
+                            match found_results.0.cmp(&found_results.1) {
+                                Ordering::Greater => Some(EvaluationResult::TruePositive),
+                                Ordering::Equal => Some(EvaluationResult::Unsure),
+                                Ordering::Less => Some(EvaluationResult::FalsePositive),
+                            }
+                        })
+                        .collect();
+
+                    EvaluatedKeyword {
+                        keyword: format!("{}/{}", keyword, section),
+                        true_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                            EvaluationResult::TruePositive => acc + 1,
+                            _ => acc,
+                        }),
+                        false_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                            EvaluationResult::FalsePositive => acc + 1,
+                            _ => acc,
+                        }),
+                        unsure: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                            EvaluationResult::Unsure => acc + 1,
+                            _ => acc,
+                        }),
+                    }
+                })
+                .collect();
+
+            evaluated_sections.push(
+                EvaluatedKeyword {
+                    keyword: keyword.to_string(),
+                    true_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                        EvaluationResult::TruePositive => acc + 1,
+                        _ => acc,
+                    }),
+                    false_positives: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                        EvaluationResult::FalsePositive => acc + 1,
+                        _ => acc,
+                    }),
+                    unsure: evaluated_commits.iter().fold(0, |acc, elem| match elem {
+                        EvaluationResult::Unsure => acc + 1,
+                        _ => acc,
+                    }),
+                }
+            );
+
+            evaluated_sections
         })
         .collect()
 }

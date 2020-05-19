@@ -25,6 +25,7 @@ ansi_term = "0.12.1"
 # patch for static dependencies
 curl = { version = "0.4.25", features = ["static-ssl"] }
 isahc = { version = "0.8", default-features = false, features = ["http2", "static-curl"] }
+itertools = "0.9.0"
 
 [dependencies.cursive]
 version = "0.14.0"
